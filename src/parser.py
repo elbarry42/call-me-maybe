@@ -24,13 +24,13 @@ def load_json_file(path: str) -> JSONList:
 def load_function_definitions(path: str) -> list[FunctionDefinition]:
     raw_data = load_json_file(path)
 
-    tests = []
+    functions = []
 
     for item in raw_data:
         function = FunctionDefinition(**item)
-        tests.append(function)
+        functions.append(function)
 
-    return tests
+    return functions
 
 
 def load_function_calling_tests(path: str) -> list[FunctionCallTest]:
