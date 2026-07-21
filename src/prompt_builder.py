@@ -14,4 +14,8 @@ def build_prompt(functions: list[FunctionDefinition], user_prompt: str) -> str:
                 f"Parameter: {parameter_name} ({parameter.type})\n"
             )
         prompt += f"Returns: {function.returns.type}\n\n"
+
+    prompt += "\nUser request:\n"
+    prompt += user_prompt
+
     return prompt
