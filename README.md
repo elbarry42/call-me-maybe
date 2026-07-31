@@ -1,355 +1,317 @@
-````md
 *This project has been created as part of the 42 curriculum by elbarry.*
 
-# call_me_maybe – Function Calling with LLMs 🤖📞
+# Call Me Maybe
 
-Welcome to **call_me_maybe**! 🚀  
-This project explores how **Large Language Models (LLMs)** can transform natural language into **structured function calls** using **constrained decoding** and schema-aware generation.
+## Description
 
-The goal is not to generate plain text answers, but to produce **100% valid JSON outputs** that can be executed reliably by machines.
+Call Me Maybe is a function-calling project developed as part of the 42 curriculum.
 
-It is a core AI-focused project of the **42 curriculum**, centered around:
+The goal is to use a Large Language Model (LLM) to determine which function should be called from a natural language request while producing a valid JSON output containing the selected function and its parameters.
 
-* Function calling systems
-* Token-level constrained decoding
-* Structured JSON generation
-* LLM interaction pipelines
-* Reliability and validation
+Unlike traditional text generation, this project implements constrained decoding to guarantee that the generated JSON always follows the expected structure.
+
+The program:
+
+- loads function definitions from a JSON file;
+- loads user prompts from another JSON file;
+- selects the most appropriate function using constrained decoding;
+- extracts function parameters;
+- generates valid JSON results.
 
 ---
 
-## 📝 Description
+# Instructions
 
-The program receives:
+## Requirements
 
-* A list of natural language prompts
-* A JSON file containing available function definitions
+- Python 3.12+
+- uv
+- Internet connection during the first installation (to download model dependencies)
 
-It must determine:
+## Installation
 
-* Which function should be called
-* Which arguments are required
-* The correct argument types
-
-The output is a **strictly valid JSON file** containing structured function calls.
-
-### 📌 Example
-
-#### Input prompt
-
-```text
-What is the sum of 40 and 2?
-````
-
-#### Generated output
-
-```json
-{
-  "name": "fn_add_numbers",
-  "parameters": {
-    "a": 40,
-    "b": 2
-  }
-}
+```bash
+make install
 ```
 
-Unlike traditional chatbots, the system does not answer the question directly — it generates the proper machine-readable instruction.
-
----
-
-## 🎯 Project Objectives
-
-This project focuses on:
-
-* Understanding how LLMs generate tokens
-* Building a constrained decoding pipeline
-* Enforcing JSON schema validity
-* Improving reliability with small models
-* Designing robust AI-driven systems
-* Handling malformed inputs gracefully
-
----
-
-## ⚙️ Technologies Used
-
-| Technology   | Purpose                |
-| ------------ | ---------------------- |
-| Python 3.10+ | Core implementation    |
-| Qwen3-0.6B   | Language model         |
-| pydantic     | Validation and schemas |
-| numpy        | Numerical utilities    |
-| uv           | Dependency management  |
-| flake8       | Code style             |
-| mypy         | Static typing          |
-
----
-
-## 🧠 Constrained Decoding
-
-The core challenge of the project is ensuring that the LLM generates:
-
-✔ Valid JSON
-✔ Correct schema structure
-✔ Proper argument types
-✔ Allowed function names only
-
-Instead of trusting the model blindly, the decoder filters invalid tokens during generation.
-
-### 🔄 Generation Pipeline
-
-```text
-Prompt
-   ↓
-Tokenization
-   ↓
-Input IDs
-   ↓
-LLM logits
-   ↓
-Token filtering
-   ↓
-Valid next token selection
-   ↓
-Structured JSON output
-```
-
-At every step:
-
-* Invalid tokens are rejected
-* JSON structure is enforced
-* Schema constraints are validated
-* Only valid continuations remain possible
-
-This guarantees **100% parseable outputs**.
-
----
-
-## 📂 Project Structure
-
-```text
-.
-├── src/
-├── llm_sdk/
-├── data/
-│   ├── input/
-│   └── output/
-├── README.md
-├── pyproject.toml
-├── uv.lock
-└── Makefile
-```
-
----
-
-## 📥 Input Files
-
-### `function_calling_tests.json`
-
-Contains prompts to process.
-
-Example:
-
-```json
-[
-  {
-    "prompt": "Reverse the string 'hello'"
-  }
-]
-```
-
-### `functions_definition.json`
-
-Contains available functions and schemas.
-
-Example:
-
-```json
-[
-  {
-    "name": "fn_reverse_string",
-    "parameters": {
-      "s": {
-        "type": "string"
-      }
-    }
-  }
-]
-```
-
----
-
-## 📤 Output Format
-
-The program generates:
-
-```text
-data/output/function_calling_results.json
-```
-
-Example:
-
-```json
-[
-  {
-    "prompt": "Reverse the string 'hello'",
-    "name": "fn_reverse_string",
-    "parameters": {
-      "s": "hello"
-    }
-  }
-]
-```
-
----
-
-## ⚙️ Installation & Usage
-
-### 📦 Install dependencies
+or
 
 ```bash
 uv sync
 ```
 
-### ▶ Run the program
+## Run
+
+```bash
+make run
+```
+
+or
 
 ```bash
 uv run python -m src
 ```
 
-### ▶ Custom paths
+The generated output is written to:
+
+```
+data/output/function_calling_results.json
+```
+
+## Debug
 
 ```bash
-uv run python -m src \
-  --functions_definition data/input/functions_definition.json \
-  --input data/input/function_calling_tests.json \
-  --output data/output/function_calling_results.json
+make debug
+```
+
+## Lint
+
+```bash
+make lint
 ```
 
 ---
 
-## 🧪 Testing Strategy
+# Algorithm Explanation
 
-The implementation was tested against:
+The project implements constrained decoding instead of unrestricted text generation.
 
-* Empty prompts
-* Invalid JSON files
-* Missing files
-* Large numbers
-* Special characters
-* Incorrect argument types
-* Ambiguous prompts
-* Multiple parameter functions
+Rather than allowing the language model to generate arbitrary tokens, every decoding step restricts the possible tokens according to the expected JSON grammar.
 
-Validation included:
+The decoder follows a state machine representing the JSON structure:
 
-* JSON parsing verification
-* Schema compliance checks
-* Type validation
-* Reliability testing
+```
+{
+    "name": "...",
+    "parameters": {
+        ...
+    }
+}
+```
 
----
+The decoding process is divided into several stages:
 
-## 📊 Performance Analysis
+1. Generate the opening brace.
+2. Generate the `"name"` key.
+3. Generate the selected function name.
+4. Generate the `"parameters"` key.
+5. Extract parameters from the prompt.
+6. Return the final JSON object.
 
-The system aims to achieve:
+Function selection is entirely driven by constrained decoding using the model logits.
 
-| Metric                      | Goal            |
-| --------------------------- | --------------- |
-| JSON validity               | 100%            |
-| Function selection accuracy | 90%+            |
-| Robustness                  | High            |
-| Processing speed            | Under 5 minutes |
+Parameter extraction is performed using deterministic heuristics adapted to parameter types:
 
-The project demonstrates that **small LLMs can become highly reliable when guided structurally rather than purely through prompting**.
+- numbers
+- integers
+- booleans
+- strings
+- paths
+- encodings
+- database names
+- templates
+- names
 
----
-
-## 🧩 Design Decisions
-
-### Why constrained decoding?
-
-Prompting alone is unreliable for structured generation.
-
-Constrained decoding ensures:
-
-* Structural correctness
-* Deterministic outputs
-* Better reliability
-* Safer execution pipelines
-
-### Why pydantic?
-
-Used for:
-
-* Runtime validation
-* Type enforcement
-* Cleaner schema management
-* Safer data handling
-
-### Why Qwen3-0.6B?
-
-The project specifically targets lightweight models to demonstrate that:
-
-> Proper decoding strategies matter more than raw model size.
+This hybrid approach guarantees valid JSON while improving parameter extraction accuracy.
 
 ---
 
-## ⚠️ Error Handling
+# Design Decisions
 
-The program gracefully handles:
+Several design choices were made during development.
 
-* Missing input files
-* Invalid JSON
-* Invalid schemas
-* Unsupported parameter types
-* Generation failures
-* Malformed prompts
+### State machine
 
-The application should never crash unexpectedly.
+A finite-state machine simplifies constrained decoding and guarantees the JSON structure.
 
----
+### Hybrid architecture
 
-## 📚 Resources
+The LLM is responsible for selecting the most appropriate function.
 
-* JSON Schema
-* Constrained Decoding
-* Tokenization
-* Function Calling in LLMs
-* Pydantic Documentation
-* Qwen Documentation
-* [https://docs.pydantic.dev/](https://docs.pydantic.dev/)
-* [https://platform.openai.com/docs/guides/function-calling](https://platform.openai.com/docs/guides/function-calling)
-* [https://en.wikipedia.org/wiki/JSON](https://en.wikipedia.org/wiki/JSON)
-* [https://en.wikipedia.org/wiki/Tokenizer_(lexical_analysis)](https://en.wikipedia.org/wiki/Tokenizer_%28lexical_analysis%29)
+Parameter extraction is implemented separately using Python heuristics, which improves determinism and simplifies validation.
 
----
+### Robust parser
 
-## 🤖 AI Usage
+Input files are validated before execution.
 
-AI tools were used for:
+Missing files or invalid JSON do not crash the program.
 
-* Documentation assistance
-* README structuring
-* Clarifying theoretical concepts
-* Reviewing explanations
+### Type safety
 
-All implementation details, architecture, constrained decoding logic, validation systems, and project decisions were fully understood, designed, tested, and implemented manually in compliance with the **42 AI policy**.
+The project uses:
+
+- type annotations
+- Pydantic models
+- mypy
+- flake8
+
+to improve reliability and maintainability.
 
 ---
 
-## 🚀 Bonus Features
+# Performance Analysis
 
-Potential bonus implementations include:
+The implementation focuses on three objectives.
 
-* Multi-model support
-* Custom tokenizer implementation
-* Advanced recovery systems
-* Caching optimizations
-* Visualization of token generation
-* Nested argument support
+### Accuracy
+
+The constrained decoder reliably predicts the correct function for most prompts.
+
+Parameter extraction performs well for numeric, boolean and common string parameters.
+
+Some highly ambiguous prompts remain challenging.
+
+### Speed
+
+The project completes within the required execution time.
+
+JSON parsing and heuristic extraction have negligible overhead.
+
+### Reliability
+
+The decoder always generates valid JSON respecting the expected schema.
+
+Error handling prevents crashes caused by invalid input files.
 
 ---
 
-✨ Thanks for checking out my **call_me_maybe** project! 🚀
+# Challenges Faced
 
+Several challenges were encountered during development.
+
+### Constrained decoding
+
+Implementing token filtering while preserving valid model predictions required careful state management.
+
+### Token vocabulary
+
+The tokenizer vocabulary had to be decoded and indexed efficiently.
+
+### Parameter extraction
+
+Natural language prompts vary significantly.
+
+Several heuristics were added for:
+
+- quoted strings
+- numbers
+- file paths
+- encodings
+- database names
+- template extraction
+
+### Robustness
+
+The parser was improved to correctly handle:
+
+- missing files
+- malformed JSON
+- empty inputs
+
+without terminating unexpectedly.
+
+---
+
+# Testing Strategy
+
+The project was validated using multiple testing approaches.
+
+### Functional tests
+
+- simple arithmetic requests
+- greeting requests
+- string manipulation
+- file operations
+
+### Robustness tests
+
+- missing input files
+- invalid JSON
+- empty datasets
+- unknown prompts
+
+### Code quality
+
+The project was checked using:
+
+- flake8
+- mypy
+
+### Manual verification
+
+Generated JSON files were manually inspected to ensure they matched the expected schema.
+
+---
+
+# Example Usage
+
+Example prompt:
+
+```text
+Add 12 and 45
+```
+
+Generated output:
+
+```json
+{
+    "name": "fn_add_numbers",
+    "parameters": {
+        "a": 12,
+        "b": 45
+    }
+}
+```
+
+Run the project:
+
+```bash
+make run
+```
+
+Output:
+
+```
+data/output/function_calling_results.json
+```
+
+---
+
+# Resources
+
+## Documentation
+
+- Python Documentation
+- JSON Documentation
+- Pydantic Documentation
+- Hugging Face Transformers Documentation
+- Qwen Model Documentation
+
+## AI Usage
+
+Artificial intelligence tools were used during the development of this project to assist with:
+
+- brainstorming implementation ideas;
+- discussing constrained decoding strategies;
+- improving documentation and README structure;
+- reviewing code quality;
+- identifying potential bugs and edge cases.
+
+All architectural decisions, implementation, debugging, testing, and final validation were performed and reviewed by the project author.
+
+---
+
+# Project Structure
+
+```
+.
+├── data/
+│   ├── input/
+│   └── output/
+├── llm_sdk/
+├── src/
+├── Makefile
+├── README.md
+├── pyproject.toml
+└── uv.lock
 ```
