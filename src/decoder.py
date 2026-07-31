@@ -1,5 +1,4 @@
 import json
-import string
 import re
 from enum import Enum
 from typing import Any
@@ -83,108 +82,111 @@ class Decoder:
             user_prompt = prompt.split(marker, 1)[1]
         else:
             user_prompt = prompt
-        #
-        # fn_add_numbers
-        #
-        if function.name == "fn_add_numbers":
 
-            numbers = re.findall(r"-?\d+(?:\.\d+)?", user_prompt)
+        parameters = {}
 
-            if len(numbers) >= 2:
-                return {
-                    "a": float(numbers[0]) if "." in numbers[0] else int(numbers[0]),
-                    "b": float(numbers[1]) if "." in numbers[1] else int(numbers[1]),
-                }
+        numbers = re.findall(r"-?\d+(?:\.\d+)?", user_prompt)
+        number_index = 0
 
-        #
-        # fn_get_square_root
-        #
-        elif function.name == "fn_get_square_root":
+        integers = re.findall(r"-?\d+", user_prompt)
+        integer_index = 0
 
-            number = re.search(r"-?\d+(?:\.\d+)?", user_prompt)
+        strings = re.findall(r"'([^']*)'|\"([^\"]*)\"", user_prompt)
+        string_values = []
 
-            if number:
-                value = number.group()
+        for a, b in strings:
+            if a:
+                string_values.append(a)
+            elif b:
+                string_values.append(b)
 
-                return {
-                    "a": float(value) if "." in value else int(value),
-                }
+        string_index = 0
 
-        #
-        # fn_greet
-        #
-        elif function.name == "fn_greet":
+        for parameter_name, parameter in function.parameters.items():
 
-            match = re.search(r"Greet\s+(.+)", user_prompt, re.IGNORECASE)
+            if parameter.type == "number":
 
-            if match:
-                return {
-                    "name": match.group(1).strip(),
-                }
+                if number_index < len(numbers):
+                    parameters[parameter_name] = float(numbers[number_index])
+                    number_index += 1
 
-        #
-        # fn_reverse_string
-        #
-        elif function.name == "fn_reverse_string":
+            elif parameter.type == "integer":
 
-            match = re.search(r"'([^']*)'", user_prompt)
+                if integer_index < len(integers):
+                    parameters[parameter_name] = int(integers[integer_index])
+                    integer_index += 1
 
-            if match:
-                return {
-                    "s": match.group(1),
-                }
+            elif parameter.type == "boolean":
 
-        #
-        # fn_substitute_string_with_regex
-        #
-        elif function.name == "fn_substitute_string_with_regex":
+                if "true" in user_prompt.lower():
+                    parameters[parameter_name] = True
+                elif "false" in user_prompt.lower():
+                    parameters[parameter_name] = False
 
-            #
-            # Replace all numbers in "Hello 34 I'm 233 years old" with NUMBERS
-            #
-            if "Replace all numbers" in user_prompt:
+            elif parameter.type == "string":
 
-                source = re.search(r'"([^"]*)"', user_prompt)
+                # database
+                if parameter_name == "database":
 
-                if source:
-                    replacement = user_prompt.split("with", 1)[1].strip()
+                    if "production" in user_prompt.lower():
+                        parameters[parameter_name] = "production"
+                    elif "system" in user_prompt.lower():
+                        parameters[parameter_name] = "system"
+                    continue
 
-                    return {
-                        "source_string": source.group(1),
-                        "regex": r"\d+",
-                        "replacement": replacement,
-                    }
+                # encoding
+                if parameter_name == "encoding":
 
-            #
-            # Replace all vowels in 'Programming is fun' with asterisks
-            #
-            if "Replace all vowels" in user_prompt:
+                    match = re.search(
+                        r"(utf-8|latin-1|ascii|utf8)",
+                        user_prompt,
+                        re.IGNORECASE,
+                    )
 
-                source = re.search(r"'([^']*)'", user_prompt)
+                    if match:
+                        parameters[parameter_name] = match.group(1)
 
-                if source:
-                    replacement = user_prompt.split("with", 1)[1].strip()
+                    continue
 
-                    return {
-                        "source_string": source.group(1),
-                        "regex": r"[AEIOUaeiou]",
-                        "replacement": replacement,
-                    }
+                # path
+                if parameter_name == "path":
 
-            #
-            # Substitute the word 'cat' with 'dog' in 'The cat sat on the mat with another cat'
-            #
-            strings = re.findall(r"'([^']*)'", user_prompt)
+                    match = re.search(
+                        r"(/[^\s]+|[A-Za-z]:\\[^\s]+)",
+                        user_prompt,
+                    )
 
-            if len(strings) >= 3:
+                    if match:
+                        parameters[parameter_name] = match.group(1)
 
-                return {
-                    "source_string": strings[2],
-                    "regex": strings[0],
-                    "replacement": strings[1],
-                }
+                    continue
 
-        return {}
+                # template
+                if parameter_name == "template":
+
+                    if "Format template:" in user_prompt:
+                        parameters[parameter_name] = (
+                            user_prompt
+                            .split("Format template:", 1)[1]
+                            .strip()
+                        )
+
+                    continue
+
+                # name
+                if parameter_name == "name" and not string_values:
+
+                    words = user_prompt.split()
+                    if len(words) >= 2:
+                        parameters[parameter_name] = " ".join(words[1:])
+                    continue
+
+                # generic string extraction
+                if string_index < len(string_values):
+                    parameters[parameter_name] = string_values[string_index]
+                    string_index += 1
+
+        return parameters
 
     def allowed_name_key(self, prefix: str) -> set[int]:
         allowed = set()
@@ -260,9 +262,7 @@ class Decoder:
 
             token = self.decoded_tokens[token_id]
 
-            #
             # NUMBER / INTEGER
-            #
             if param_type in ("number", "integer"):
 
                 if any(c.isdigit() for c in token):
@@ -414,9 +414,8 @@ class Decoder:
 
         generated_tokens: list[int] = []
         prompt = self.decode_tokens(prompt_ids)
-        #
+
         # {
-        #
         while True:
 
             prefix = self.decode_tokens(generated_tokens)
@@ -436,9 +435,7 @@ class Decoder:
 
             generated_tokens.append(token_id)
 
-        #
         # "name"
-        #
         state_tokens = []
 
         while True:
@@ -461,9 +458,8 @@ class Decoder:
             generated_tokens.append(token_id)
             state_tokens.append(token_id)
 
-        #
         # :
-        #
+
         while True:
 
             logits = self.get_logits(prompt_ids + generated_tokens)
@@ -481,9 +477,8 @@ class Decoder:
             if ":" in self.decode_tokens([token_id]):
                 break
 
-        #
         # "function_name"
-        #
+
         state_tokens = []
 
         valid_names = [f'"{fn.name}"' for fn in functions]

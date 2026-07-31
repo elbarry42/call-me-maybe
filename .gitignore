@@ -1,0 +1,29 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Type checking
+.mypy_cache/
+
+# Pytest
+.pytest_cache/
+
+# Ruff / flake8 cache
+.ruff_cache/
+
+# Coverage
+.coverage
+htmlcov/
+.coverage.*
+
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Generated output
+data/output/

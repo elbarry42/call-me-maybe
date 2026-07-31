@@ -1,3 +1,4 @@
+import os
 import json
 from llm_sdk.llm_sdk import Small_LLM_Model
 from .decoder import Decoder
@@ -30,6 +31,7 @@ def main():
         input_ids = model.encode(prompt).tolist()[0]
 
         decoded = decoder.decode(input_ids, functions)
+        print(json.dumps(decoded, indent=4))
 
         results.append(
             {
@@ -38,6 +40,8 @@ def main():
                 "parameters": decoded["parameters"],
             }
         )
+
+    os.makedirs("data/output", exist_ok=True)
 
     with open(
         "data/output/function_calling_results.json",
