@@ -117,6 +117,14 @@ class Decoder:
 
             elif parameter.type == "integer":
 
+                if parameter_name == "years":
+                    match = re.search(
+                        r"(\d+)\s+years?", user_prompt, re.IGNORECASE
+                    )
+                    if match:
+                        parameters[parameter_name] = int(match.group(1))
+                        continue
+
                 if integer_index < len(integers):
                     parameters[parameter_name] = int(integers[integer_index])
                     integer_index += 1
@@ -180,10 +188,10 @@ class Decoder:
 
                 # name
                 if parameter_name == "name" and not string_values:
-
-                    words = user_prompt.split()
-                    if len(words) >= 2:
-                        parameters[parameter_name] = " ".join(words[1:])
+                    if user_prompt.lower().startswith("greet "):
+                        parameters[parameter_name] = (
+                            user_prompt[6:].strip().strip("'\"")
+                        )
                     continue
 
                 # generic string extraction
