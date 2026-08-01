@@ -2,6 +2,7 @@ import json
 import re
 from enum import Enum
 from typing import Any
+from typing import cast
 from .models import FunctionDefinition
 from llm_sdk.llm_sdk import Small_LLM_Model
 
@@ -26,14 +27,16 @@ class Decoder:
         print(f"VOCAB PATH: {vocab_path}")
 
         with open(vocab_path, "r") as file:
-            self.token_to_id = json.load(file)
+            self.token_to_id: dict[str, int] = cast(
+                dict[str, int], json.load(file)
+            )
 
-        self.id_to_token = {}
+        self.id_to_token: dict[int, str] = {}
 
         for token, token_id in self.token_to_id.items():
             self.id_to_token[token_id] = token
 
-        self.decoded_tokens = {}
+        self.decoded_tokens: dict[int, str] = {}
 
         for token_id in self.id_to_token:
             self.decoded_tokens[token_id] = self.decode_tokens([token_id])
@@ -66,10 +69,12 @@ class Decoder:
         return filtered
 
     def get_logits(self, input_ids: list[int]) -> list[float]:
-        return self.model.get_logits_from_input_ids(input_ids)
+        return cast(
+            list[float], self.model.get_logits_from_input_ids(input_ids)
+        )
 
     def decode_tokens(self, token_ids: list[int]) -> str:
-        return self.model.decode(token_ids)
+        return cast(str, self.model.decode(token_ids))
 
     def extract_parameters(
         self,
@@ -83,7 +88,7 @@ class Decoder:
         else:
             user_prompt = prompt
 
-        parameters = {}
+        parameters: dict[str, Any] = {}
 
         numbers = re.findall(r"-?\d+(?:\.\d+)?", user_prompt)
         number_index = 0
@@ -390,12 +395,16 @@ class Decoder:
             return self.allowed_parameters_key(prefix_text)
 
         if current_state == DecoderState.PARAM_NAME:
+            assert function is not None
+
             return self.allowed_param_name(
                 prefix_text,
                 function,
             )
 
         if current_state == DecoderState.PARAM_VALUE:
+            assert current_param_type is not None
+
             return self.allowed_param_value(
                 prefix_text,
                 current_param_type,
@@ -436,7 +445,7 @@ class Decoder:
             generated_tokens.append(token_id)
 
         # "name"
-        state_tokens = []
+        state_tokens: list[int] = []
 
         while True:
 

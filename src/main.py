@@ -9,14 +9,20 @@ from .parser import (
 )
 
 
-def main():
+def main() -> None:
     functions = load_function_definitions(
         "data/input/functions_definition.json"
     )
 
+    if not functions:
+        return
+
     tests = load_function_calling_tests(
         "data/input/function_calling_tests.json"
     )
+
+    if not tests:
+        return
 
     model = Small_LLM_Model()
     decoder = Decoder(model)

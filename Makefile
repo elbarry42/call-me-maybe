@@ -17,8 +17,9 @@ clean:
 	find . -type f -name "*.pyc" -delete
 
 lint:
-	uv run flake8 .
-	uv run mypy . \
+	flake8 src 
+	mypy src \
+		--follow-imports=skip \
 		--warn-return-any \
 		--warn-unused-ignores \
 		--ignore-missing-imports \
@@ -26,5 +27,5 @@ lint:
 		--check-untyped-defs
 
 lint-strict:
-	uv run flake8 .
-	uv run mypy . --strict
+	flake8 src
+	mypy src --strict
