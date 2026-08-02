@@ -24,7 +24,6 @@ class Decoder:
         self.model = model
 
         vocab_path = model.get_path_to_vocab_file()
-        print(f"VOCAB PATH: {vocab_path}")
 
         with open(vocab_path, "r") as file:
             self.token_to_id: dict[str, int] = cast(

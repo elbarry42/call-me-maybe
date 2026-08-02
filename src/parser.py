@@ -48,6 +48,14 @@ def load_function_definitions(path: str) -> list[FunctionDefinition]:
             return []
         functions.append(function)
 
+    names: set[str] = set()
+
+    for function in functions:
+        if function.name in names:
+            print("Duplicate function name.")
+            return []
+        names.add(function.name)
+
     return functions
 
 
