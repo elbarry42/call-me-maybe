@@ -1,6 +1,7 @@
 import json
 from typing import Any
 from typing import cast
+from pydantic import ValidationError
 from .models import FunctionDefinition, FunctionCallTest
 
 JSONDict = dict[str, Any]
@@ -13,8 +14,12 @@ def load_json_file(path: str) -> JSONList | None:
     """
     try:
         with open(path, "r", encoding="utf-8") as file:
-            data = cast(JSONList, json.load(file))
-        return data
+            data = json.load(file)
+            if not isinstance(data, list):
+                print(f"Error: '{path}' must contain a JSON array.")
+                return None
+
+            return cast(JSONList, data)
     except FileNotFoundError:
         print(f"Error: File '{path}' not found")
         return None
@@ -32,7 +37,15 @@ def load_function_definitions(path: str) -> list[FunctionDefinition]:
     functions = []
 
     for item in raw_data:
-        function = FunctionDefinition(**item)
+        if not isinstance(item, dict):
+            print("Invalid function definition.")
+            return []
+
+        try:
+            function = FunctionDefinition(**item)
+        except ValidationError:
+            print("Invalid function definition.")
+            return []
         functions.append(function)
 
     return functions
@@ -47,7 +60,15 @@ def load_function_calling_tests(path: str) -> list[FunctionCallTest]:
     tests = []
 
     for item in raw_data:
-        function = FunctionCallTest(**item)
+        if not isinstance(item, dict):
+            print("Invalid calling test.")
+            return []
+
+        try:
+            function = FunctionCallTest(**item)
+        except ValidationError:
+            print("Invalid calling test.")
+            return []
         tests.append(function)
 
     return tests

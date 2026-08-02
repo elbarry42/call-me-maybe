@@ -1,20 +1,29 @@
-from pydantic import BaseModel
+from typing import Literal
+from pydantic import BaseModel, Field
+
+
+AllowedType = Literal[
+    "string",
+    "number",
+    "integer",
+    "boolean",
+]
 
 
 class ParameterDefinition(BaseModel):
-    type: str
+    type: AllowedType
 
 
 class ReturnDefinition(BaseModel):
-    type: str
+    type: AllowedType
 
 
 class FunctionDefinition(BaseModel):
-    name: str
-    description: str
+    name: str = Field(min_length=1)
+    description: str = Field(min_length=1)
     parameters: dict[str, ParameterDefinition]
     returns: ReturnDefinition
 
 
 class FunctionCallTest(BaseModel):
-    prompt: str
+    prompt: str = Field(min_length=1)
