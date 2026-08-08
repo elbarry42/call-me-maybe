@@ -54,5 +54,4 @@ def main() -> None:
         ) as file:
             json.dump(results, file, indent=4)
     except KeyboardInterrupt:
-            print("\nInterrupted by user.")
-
+        print("\nInterrupted by user.")
