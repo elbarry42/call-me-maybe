@@ -1,538 +1,216 @@
-import json
-import re
-from enum import Enum
 from typing import Any
-from typing import cast
-from .models import FunctionDefinition
+
 from llm_sdk.llm_sdk import Small_LLM_Model
-
-
-class DecoderState(Enum):
-    OPEN_BRACE = 0
-    NAME_KEY = 1
-    COLON = 2
-    NAME_VALUE = 3
-    COMMA = 4
-    PARAMETERS_KEY = 5
-    PARAM_NAME = 6
-    PARAM_VALUE = 7
-    CLOSE_BRACE = 8
+from .json_builder import JsonBuilder
+from .constraints import Constraints
+from .models import FunctionDefinition
+from .parameter_extractor import ParameterExtractor
+from .token_utils import TokenUtils
+from .generation import Generator
+from .decoder_state import DecoderState
+from .function_selector import FunctionSelector
 
 
 class Decoder:
+    """Decode user requests into structured function calls."""
+
     def __init__(self, model: Small_LLM_Model):
+        """Initialize the decoder and its helper components."""
         self.model = model
-
-        vocab_path = model.get_path_to_vocab_file()
-
-        with open(vocab_path, "r") as file:
-            self.token_to_id: dict[str, int] = cast(
-                dict[str, int], json.load(file)
-            )
-
-        self.id_to_token: dict[int, str] = {}
-
-        for token, token_id in self.token_to_id.items():
-            self.id_to_token[token_id] = token
-
-        self.decoded_tokens: dict[int, str] = {}
-
-        for token_id in self.id_to_token:
-            self.decoded_tokens[token_id] = self.decode_tokens([token_id])
-
-    def token_id(self, token: str) -> int:
-        return self.token_to_id[token]
-
-    def token(self, token_id: int) -> str:
-        return self.id_to_token[token_id]
-
-    def best_token(self, logits: list[float]) -> int:
-        best_score = logits[0]
-        best_token_id = 0
-
-        for token_id, score in enumerate(logits):
-            if score > best_score:
-                best_score = score
-                best_token_id = token_id
-
-        return best_token_id
-
-    def filter_logits(
-            self, logits: list[float], allowed_tokens: set[int]
-    ) -> list[float]:
-        filtered = logits.copy()
-
-        for token_id in range(len(filtered)):
-            if token_id not in allowed_tokens:
-                filtered[token_id] = float("-inf")
-        return filtered
-
-    def get_logits(self, input_ids: list[int]) -> list[float]:
-        return cast(
-            list[float], self.model.get_logits_from_input_ids(input_ids)
+        self.tokens = TokenUtils(model)
+        self.constraints = Constraints(self.tokens)
+        self.parameter_extractor = ParameterExtractor()
+        self.generator = Generator(
+            self.tokens,
+            self.constraints,
+        )
+        self.json_builder = JsonBuilder()
+        self.function_selector = FunctionSelector(
+            self.tokens,
+            self.constraints,
+            self.generator,
         )
 
+    def get_logits(self, input_ids: list[int]) -> list[float]:
+        """Return the logits produced by the model."""
+        return self.tokens.get_logits(input_ids)
+
+    def best_token(self, logits: list[float]) -> int:
+        """Return the highest-scoring token ID."""
+        return self.tokens.best_token(logits)
+
     def decode_tokens(self, token_ids: list[int]) -> str:
-        return cast(str, self.model.decode(token_ids))
+        """Decode token IDs into text."""
+        return self.tokens.decode_tokens(token_ids)
+
+    def filter_logits(
+        self,
+        logits: list[float],
+        allowed_tokens: set[int],
+    ) -> list[float]:
+        """Keep only logits corresponding to allowed tokens."""
+        return self.tokens.filter_logits(
+            logits,
+            allowed_tokens,
+        )
+
+    def generate_one_token(
+        self,
+        input_ids: list[int],
+        state: DecoderState,
+        prefix: str,
+        functions: list[FunctionDefinition],
+        function: FunctionDefinition | None = None,
+        parameter_type: str | None = None,
+    ) -> int:
+        """Generate one token according to the current JSON state."""
+        return self.generator.generate_token(
+            input_ids=input_ids,
+            state=state,
+            prefix=prefix,
+            functions=functions,
+            function=function,
+            parameter_type=parameter_type,
+        )
+
+    def _append_token(
+        self,
+        input_ids: list[int],
+        generated_tokens: list[int],
+        token_id: int,
+    ) -> None:
+        """Append a generated token to the current sequences."""
+        input_ids.append(token_id)
+        generated_tokens.append(token_id)
+
+    def _generated_text(
+        self,
+        generated_tokens: list[int],
+    ) -> str:
+        """Return the text generated so far."""
+        return self.tokens.decode_tokens(generated_tokens)
+
+    def _generate_until(
+        self,
+        input_ids: list[int],
+        generated_tokens: list[int],
+        state: DecoderState,
+        functions: list[FunctionDefinition],
+        function: FunctionDefinition | None = None,
+        parameter_type: str | None = None,
+        max_tokens: int = 256,
+    ) -> str:
+        """Generate tokens until the current JSON fragment is complete."""
+        for _ in range(max_tokens):
+            prefix = self._generated_text(generated_tokens)
+
+            token_id = self.generate_one_token(
+                input_ids=input_ids,
+                state=state,
+                prefix=prefix,
+                functions=functions,
+                function=function,
+                parameter_type=parameter_type,
+            )
+
+            self._append_token(
+                input_ids,
+                generated_tokens,
+                token_id,
+            )
+
+            text = self._generated_text(generated_tokens)
+
+            if self._fragment_complete(text, state):
+                return text
+
+        raise ValueError(
+            f"Maximum generation length reached in state {state}."
+        )
+
+    def _fragment_complete(
+        self,
+        text: str,
+        state: DecoderState,
+    ) -> bool:
+        """Check whether the current JSON fragment is complete."""
+        if state == DecoderState.OPEN_BRACE:
+            return "{" in text
+
+        if state == DecoderState.NAME_KEY:
+            return text.endswith('"name"')
+
+        if state == DecoderState.COLON:
+            return text.endswith(":")
+
+        if state == DecoderState.NAME_VALUE:
+            return text.endswith('"')
+
+        if state == DecoderState.PARAMETERS_KEY:
+            return text.endswith('"parameters"')
+
+        if state == DecoderState.PARAM_NAME:
+            return text.endswith('"')
+
+        if state == DecoderState.PARAM_VALUE:
+            return text.endswith(",") or text.endswith("}")
+
+        if state == DecoderState.COMMA:
+            return text.endswith(",")
+
+        if state == DecoderState.CLOSE_BRACE:
+            return text.endswith("}")
+
+        return False
+
+    def _validate_parameters(
+        self,
+        function: FunctionDefinition,
+        parameters: dict[str, Any],
+    ) -> None:
+        """Ensure that every required parameter is present."""
+        required = set(function.parameters)
+        received = set(parameters)
+
+        missing = required - received
+
+        if missing:
+            missing_names = ", ".join(sorted(missing))
+            raise ValueError(
+                f"Missing required parameters: {missing_names}"
+            )
 
     def extract_parameters(
         self,
-        prompt: str,
+        user_prompt: str,
         function: FunctionDefinition,
     ) -> dict[str, Any]:
-        marker = "User request:\n"
+        """Extract and validate all function parameters."""
+        parameters = self.parameter_extractor.extract(
+            user_prompt,
+            function,
+        )
 
-        if marker in prompt:
-            user_prompt = prompt.split(marker, 1)[1]
-        else:
-            user_prompt = prompt
-
-        parameters: dict[str, Any] = {}
-
-        numbers = re.findall(r"-?\d+(?:\.\d+)?", user_prompt)
-        number_index = 0
-
-        integers = re.findall(r"-?\d+", user_prompt)
-        integer_index = 0
-
-        strings = re.findall(r"'([^']*)'|\"([^\"]*)\"", user_prompt)
-        string_values = []
-
-        for a, b in strings:
-            if a:
-                string_values.append(a)
-            elif b:
-                string_values.append(b)
-
-        string_index = 0
-
-        for parameter_name, parameter in function.parameters.items():
-
-            if parameter.type == "number":
-
-                if number_index < len(numbers):
-                    parameters[parameter_name] = float(numbers[number_index])
-                    number_index += 1
-
-            elif parameter.type == "integer":
-
-                if parameter_name == "years":
-                    match = re.search(
-                        r"(\d+)\s+years?", user_prompt, re.IGNORECASE
-                    )
-                    if match:
-                        parameters[parameter_name] = int(match.group(1))
-                        continue
-
-                if integer_index < len(integers):
-                    parameters[parameter_name] = int(integers[integer_index])
-                    integer_index += 1
-
-            elif parameter.type == "boolean":
-
-                if "true" in user_prompt.lower():
-                    parameters[parameter_name] = True
-                elif "false" in user_prompt.lower():
-                    parameters[parameter_name] = False
-
-            elif parameter.type == "string":
-
-                # database
-                if parameter_name == "database":
-
-                    if "production" in user_prompt.lower():
-                        parameters[parameter_name] = "production"
-                    elif "system" in user_prompt.lower():
-                        parameters[parameter_name] = "system"
-                    continue
-
-                # encoding
-                if parameter_name == "encoding":
-
-                    match = re.search(
-                        r"(utf-8|latin-1|ascii|utf8)",
-                        user_prompt,
-                        re.IGNORECASE,
-                    )
-
-                    if match:
-                        parameters[parameter_name] = match.group(1)
-
-                    continue
-
-                # path
-                if parameter_name == "path":
-
-                    match = re.search(
-                        r"(/[^\s]+|[A-Za-z]:\\[^\s]+)",
-                        user_prompt,
-                    )
-
-                    if match:
-                        parameters[parameter_name] = match.group(1)
-
-                    continue
-
-                # template
-                if parameter_name == "template":
-
-                    if "Format template:" in user_prompt:
-                        parameters[parameter_name] = (
-                            user_prompt
-                            .split("Format template:", 1)[1]
-                            .strip()
-                        )
-
-                    continue
-
-                # name
-                if parameter_name == "name" and not string_values:
-                    if user_prompt.lower().startswith("greet "):
-                        parameters[parameter_name] = (
-                            user_prompt[6:].strip().strip("'\"")
-                        )
-                    continue
-
-                # generic string extraction
-                if string_index < len(string_values):
-                    parameters[parameter_name] = string_values[string_index]
-                    string_index += 1
+        self._validate_parameters(
+            function,
+            parameters,
+        )
 
         return parameters
 
-    def allowed_name_key(self, prefix: str) -> set[int]:
-        allowed = set()
-        target = '"name"'
-
-        for token_id in self.id_to_token:
-            token = self.decoded_tokens[token_id]
-            candidate = prefix + token
-
-            if target.startswith(candidate) or candidate == target:
-                allowed.add(token_id)
-
-        return allowed
-
-    def allowed_name_value(
+    def build_result(
         self,
-        prefix: str,
-        function: FunctionDefinition | None,
-        available_functions: list[FunctionDefinition] | None,
-    ) -> set[int]:
-
-        allowed = set()
-
-        functions = available_functions or (
-            [function] if function else []
-        )
-
-        for fn in functions:
-
-            target = f'"{fn.name}"'
-
-            for token_id in self.id_to_token:
-
-                token = self.decoded_tokens[token_id]
-                candidate = prefix + token
-
-                if target.startswith(candidate) or candidate == target:
-                    allowed.add(token_id)
-
-        return allowed
-
-    def allowed_param_name(
-        self,
-        prefix: str,
         function: FunctionDefinition,
-    ) -> set[int]:
-
-        allowed = set()
-
-        for name in function.parameters:
-
-            target = f'"{name}"'
-
-            for token_id in self.id_to_token:
-
-                token = self.decoded_tokens[token_id]
-                candidate = prefix + token
-
-                if target.startswith(candidate) or candidate == target:
-                    allowed.add(token_id)
-
-        return allowed
-
-    def allowed_param_value(
-        self,
-        prefix: str,
-        param_type: str,
-    ) -> set[int]:
-
-        allowed = set()
-
-        for token_id in self.id_to_token:
-
-            token = self.decoded_tokens[token_id]
-
-            # NUMBER / INTEGER
-            if param_type in ("number", "integer"):
-
-                if any(c.isdigit() for c in token):
-                    allowed.add(token_id)
-
-                if "." in token:
-                    allowed.add(token_id)
-
-                if "-" in token and prefix.strip() == "":
-                    allowed.add(token_id)
-
-                if "," in token or "}" in token:
-                    allowed.add(token_id)
-
-            # BOOLEAN
-
-            elif param_type == "boolean":
-
-                candidate = prefix + token
-
-                if "true".startswith(candidate) or candidate == "true":
-                    allowed.add(token_id)
-
-                if "false".startswith(candidate) or candidate == "false":
-                    allowed.add(token_id)
-
-                if "," in token or "}" in token:
-                    allowed.add(token_id)
-
-            # STRING
-
-            else:
-
-                allowed.add(token_id)
-
-        return allowed
-
-    def allowed_colon(self) -> set[int]:
-        allowed = set()
-
-        for token_id in self.id_to_token:
-            token = self.decoded_tokens[token_id]
-
-            if ":" in token:
-                allowed.add(token_id)
-
-        return allowed
-
-    def allowed_comma(self) -> set[int]:
-        allowed = set()
-
-        for token_id in self.id_to_token:
-            token = self.decoded_tokens[token_id]
-
-            if "," in token:
-                allowed.add(token_id)
-
-        return allowed
-
-    def allowed_open_brace(self) -> set[int]:
-        allowed = set()
-
-        for token_id in self.id_to_token:
-            token = self.decoded_tokens[token_id]
-
-            if "{" in token:
-                allowed.add(token_id)
-
-        return allowed
-
-    def allowed_close_brace(self) -> set[int]:
-        allowed = set()
-
-        for token_id in self.id_to_token:
-            token = self.decoded_tokens[token_id]
-
-            if "}" in token:
-                allowed.add(token_id)
-
-        return allowed
-
-    def allowed_parameters_key(self, prefix: str) -> set[int]:
-        allowed = set()
-        target = '"parameters"'
-
-        for token_id in self.id_to_token:
-            token = self.decoded_tokens[token_id]
-            candidate = prefix + token
-
-            if target.startswith(candidate) or candidate == target:
-                allowed.add(token_id)
-
-        return allowed
-
-    def allowed_tokens(
-        self,
-        current_state: DecoderState,
-        prefix_text: str,
-        function: FunctionDefinition | None = None,
-        available_functions: list[FunctionDefinition] | None = None,
-        current_param_name: str | None = None,
-        current_param_type: str | None = None,
-    ) -> set[int]:
-
-        if current_state == DecoderState.OPEN_BRACE:
-            return self.allowed_open_brace()
-
-        if current_state == DecoderState.NAME_KEY:
-            return self.allowed_name_key(prefix_text)
-
-        if current_state == DecoderState.COLON:
-            return self.allowed_colon()
-
-        if current_state == DecoderState.NAME_VALUE:
-            return self.allowed_name_value(
-                prefix_text,
-                function,
-                available_functions,
-            )
-
-        if current_state == DecoderState.COMMA:
-            return self.allowed_comma()
-
-        if current_state == DecoderState.PARAMETERS_KEY:
-            return self.allowed_parameters_key(prefix_text)
-
-        if current_state == DecoderState.PARAM_NAME:
-            assert function is not None
-
-            return self.allowed_param_name(
-                prefix_text,
-                function,
-            )
-
-        if current_state == DecoderState.PARAM_VALUE:
-            assert current_param_type is not None
-
-            return self.allowed_param_value(
-                prefix_text,
-                current_param_type,
-            )
-
-        if current_state == DecoderState.CLOSE_BRACE:
-            return self.allowed_close_brace()
-
-        raise RuntimeError(f"État inconnu : {current_state}")
-
-    def decode(
-        self,
-        prompt_ids: list[int],
-        functions: list[FunctionDefinition],
+        parameters: dict[str, Any],
     ) -> dict[str, Any]:
-
-        generated_tokens: list[int] = []
-        prompt = self.decode_tokens(prompt_ids)
-
-        # {
-        while True:
-
-            prefix = self.decode_tokens(generated_tokens)
-
-            if "{" in prefix:
-                break
-
-            logits = self.get_logits(prompt_ids + generated_tokens)
-
-            allowed = self.allowed_tokens(
-                current_state=DecoderState.OPEN_BRACE,
-                prefix_text="",
-            )
-
-            filtered = self.filter_logits(logits, allowed)
-            token_id = self.best_token(filtered)
-
-            generated_tokens.append(token_id)
-
-        # "name"
-        state_tokens: list[int] = []
-
-        while True:
-
-            prefix = self.decode_tokens(state_tokens)
-
-            if prefix == '"name"':
-                break
-
-            logits = self.get_logits(prompt_ids + generated_tokens)
-
-            allowed = self.allowed_tokens(
-                current_state=DecoderState.NAME_KEY,
-                prefix_text=prefix,
-            )
-
-            filtered = self.filter_logits(logits, allowed)
-            token_id = self.best_token(filtered)
-
-            generated_tokens.append(token_id)
-            state_tokens.append(token_id)
-
-        # :
-
-        while True:
-
-            logits = self.get_logits(prompt_ids + generated_tokens)
-
-            allowed = self.allowed_tokens(
-                current_state=DecoderState.COLON,
-                prefix_text="",
-            )
-
-            filtered = self.filter_logits(logits, allowed)
-            token_id = self.best_token(filtered)
-
-            generated_tokens.append(token_id)
-
-            if ":" in self.decode_tokens([token_id]):
-                break
-
-        # "function_name"
-
-        state_tokens = []
-
-        valid_names = [f'"{fn.name}"' for fn in functions]
-
-        while True:
-
-            prefix = self.decode_tokens(state_tokens)
-
-            if prefix in valid_names:
-                break
-
-            logits = self.get_logits(prompt_ids + generated_tokens)
-
-            allowed = self.allowed_tokens(
-                current_state=DecoderState.NAME_VALUE,
-                prefix_text=prefix,
-                available_functions=functions,
-            )
-
-            filtered = self.filter_logits(logits, allowed)
-            token_id = self.best_token(filtered)
-
-            generated_tokens.append(token_id)
-            state_tokens.append(token_id)
-
-        fn_name = self.decode_tokens(state_tokens).replace('"', "")
-
-        selected_function = next(
-            (
-                fn
-                for fn in functions
-                if fn.name == fn_name
-            ),
-            functions[0],
+        """Validate parameters and build the final function call."""
+        self._validate_parameters(
+            function,
+            parameters,
         )
 
-        parameters = self.extract_parameters(prompt, selected_function)
-        return {
-            "name": selected_function.name,
-            "parameters": parameters,
-        }
+        return self.json_builder.build(
+            name=function.name,
+            parameters=parameters,
+        )
+
