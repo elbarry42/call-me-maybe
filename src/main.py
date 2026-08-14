@@ -1,36 +1,37 @@
-import os
 import json
 from llm_sdk.llm_sdk import Small_LLM_Model
 from .decoder import Decoder
+from .cli import parse_arguments, write_output
 from .prompt_builder import build_prompt
 from .parser import (load_function_calling_tests, load_function_definitions)
 
 
 def main() -> None:
-    try:
-        functions = load_function_definitions(
-            "data/input/functions_definition.json"
-        )
 
-        if not functions:
-            return
+    args = parse_arguments()
 
-        tests = load_function_calling_tests(
-            "data/input/function_calling_tests.json"
-        )
+    functions = load_function_definitions(args.functions_definition)
+    if not functions:
+        return
 
-        if not tests:
-            return
+    tests = load_function_calling_tests(args.input)
+    if not tests:
+        return
 
-        model = Small_LLM_Model()
-        decoder = Decoder(model)
+    model = Small_LLM_Model()
+    decoder = Decoder(model)
 
-        results = []
+    results = []
 
-        for test in tests:
+    for test in tests:
+        try:
             print("=" * 50)
             print(test.prompt)
-            prompt = build_prompt(functions, test.prompt)
+
+            prompt = build_prompt(
+                functions,
+                test.prompt,
+            )
 
             input_ids = model.encode(prompt).tolist()[0]
 
@@ -50,13 +51,10 @@ def main() -> None:
                 }
             )
 
-        os.makedirs("data/output", exist_ok=True)
+        except Exception as error:
+            print(f"Error while processing test: {error}")
 
-        with open(
-            "data/output/function_calling_results.json",
-            "w",
-            encoding="utf-8",
-        ) as file:
-            json.dump(results, file, indent=4)
-    except KeyboardInterrupt:
-        print("\nInterrupted by user.")
+    try:
+        write_output(args.output, results)
+    except OSError as error:
+        print(f"Error while writing output file: {error}")
