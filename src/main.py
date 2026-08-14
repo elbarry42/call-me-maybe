@@ -56,5 +56,5 @@ def main() -> None:
 
     try:
         write_output(args.output, results)
-    except OSError as error:
+    except (OSError, TypeError, ValueError) as error:
         print(f"Error while writing output file: {error}")

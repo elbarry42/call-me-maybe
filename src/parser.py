@@ -20,8 +20,8 @@ def load_json_file(path: str) -> JSONList | None:
                 return None
 
             return cast(JSONList, data)
-    except FileNotFoundError:
-        print(f"Error: File '{path}' not found")
+    except OSError as error:
+        print(f"Error reading '{path}': {error}")
         return None
     except json.JSONDecodeError:
         print(f"Error: '{path}' is not a valid JSON file.")
