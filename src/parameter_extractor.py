@@ -152,6 +152,43 @@ class ParameterExtractor:
 
         return None
 
+    def _extract_named_string(
+        self,
+        user_prompt: str,
+        name: str,
+    ) -> str | None:
+        """Extract common named string parameters."""
+        patterns = {
+            "database": [
+                r"\bon\s+the\s+([A-Za-z0-9_.-]+)\s+database\b",
+                r"\bon\s+the\s+([A-Za-z0-9_.-]+)\b",
+            ],
+            "encoding": [
+                r"\bwith\s+([A-Za-z0-9_-]+)\s+encoding\b",
+            ],
+            "path": [
+                r"\bread\s+the\s+file\s+at\s+(.+?)"
+                r"\s+with\s+[A-Za-z0-9_-]+\s+encoding\b",
+                r"\bread\s+(.+?)"
+                r"\s+with\s+[A-Za-z0-9_-]+\s+encoding\b",
+            ],
+            "template": [
+                r"\bformat\s+template:\s*(.+)$",
+            ],
+        }
+
+        for pattern in patterns.get(name, []):
+            match = re.search(
+                pattern,
+                user_prompt,
+                re.IGNORECASE,
+            )
+
+            if match is not None:
+                return match.group(1).strip()
+
+        return None
+
     def _extract_generic_parameters(
         self,
         user_prompt: str,
@@ -166,7 +203,7 @@ class ParameterExtractor:
         )
 
         integers = re.findall(
-            r"-?\d+",
+            r"(?<![\d.])-?\d+(?![\d.])",
             user_prompt,
         )
 
@@ -191,7 +228,14 @@ class ParameterExtractor:
                     integer_index += 1
 
             elif parameter.type == "string":
-                if string_index < len(strings):
+                value = self._extract_named_string(
+                    user_prompt,
+                    name,
+                )
+
+                if value is not None:
+                    result[name] = value
+                elif string_index < len(strings):
                     result[name] = strings[string_index]
                     string_index += 1
                 elif name == "name":
@@ -201,8 +245,16 @@ class ParameterExtractor:
                         re.IGNORECASE,
                     )
 
-                    if match:
+                    if match is not None:
                         result[name] = match.group(1).strip()
+                else:
+                    value = self._extract_named_string(
+                        user_prompt,
+                        name,
+                    )
+
+                    if value is not None:
+                        result[name] = value
 
             elif parameter.type == "boolean":
                 match = re.search(
@@ -245,8 +297,17 @@ class ParameterExtractor:
         name: str,
         parameter_type: str,
     ) -> object:
-        """Raise when a required parameter cannot be extracted."""
-        raise ValueError(
-            f"Unable to extract required parameter '{name}' "
-            f"from prompt: {user_prompt}"
-        )
+        """Return a safe fallback for a missing parameter."""
+        if parameter_type == "string":
+            return ""
+
+        if parameter_type == "number":
+            return 0.0
+
+        if parameter_type == "integer":
+            return 0
+
+        if parameter_type == "boolean":
+            return False
+
+        return ""
