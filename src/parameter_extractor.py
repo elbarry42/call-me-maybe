@@ -45,59 +45,68 @@ class ParameterExtractor:
         self,
         user_prompt: str,
     ) -> dict[str, object]:
-        """Extract source, regex and replacement for substitution requests."""
+        """Extract parameters for regex substitution."""
         result: dict[str, object] = {}
 
-        quoted = re.findall(
-            r"""['"]([^'"]*)['"]""",
+        number_match = re.search(
+            r"""numbers?\s+in\s+["'](.+?)["']\s+with\s+(.+)$""",
             user_prompt,
+            re.IGNORECASE,
         )
 
-        lower_prompt = user_prompt.lower()
-
-        if quoted:
-            result["source_string"] = self._find_source_string(
-                user_prompt,
-                quoted,
-            )
-
-        if "number" in lower_prompt or "digit" in lower_prompt:
+        if number_match:
+            result["source_string"] = number_match.group(1)
             result["regex"] = r"\d+"
-
-            replacement = self._extract_replacement(
-                user_prompt,
-                ["NUMBERS", "NUMBER", "#"],
+            result["replacement"] = self._normalize_replacement(
+                number_match.group(2),
             )
+            return result
 
-            if replacement is not None:
-                result["replacement"] = replacement
+        vowel_match = re.search(
+            r"""vowels?\s+in\s+["'](.+?)["']\s+with\s+(.+)$""",
+            user_prompt,
+            re.IGNORECASE,
+        )
 
-        elif "vowel" in lower_prompt:
+        if vowel_match:
+            result["source_string"] = vowel_match.group(1)
             result["regex"] = "[aeiouAEIOU]"
-
-            replacement = self._extract_replacement(
-                user_prompt,
-                ["*", "#"],
+            result["replacement"] = self._normalize_replacement(
+                vowel_match.group(2),
             )
+            return result
 
-            if replacement is not None:
-                result["replacement"] = replacement
+        substitution_match = re.search(
+            r"""word\s+['"]([^'"]+)['"]\s+with\s+['"]([^'"]+)['"]"""
+            r"""\s+in\s+['"](.+)['"]$""",
+            user_prompt,
+            re.IGNORECASE,
+        )
 
-        else:
-            replacement_match = re.search(
-                r"\bwith\s+['\"]?([^'\"]+)['\"]?",
-                user_prompt,
-                re.IGNORECASE,
-            )
-
-            if replacement_match:
-                result["replacement"] = replacement_match.group(1)
-
-            if len(quoted) >= 2:
-                result["regex"] = quoted[0]
-                result["replacement"] = quoted[1]
+        if substitution_match:
+            result["source_string"] = substitution_match.group(3)
+            result["regex"] = substitution_match.group(1)
+            result["replacement"] = substitution_match.group(2)
+            return result
 
         return result
+
+    def _normalize_replacement(self, value: str) -> str:
+        """Convert natural language replacement descriptions."""
+        value = value.strip().strip("\"'")
+
+        replacements = {
+            "asterisks": "*",
+            "asterisk": "*",
+            "hash": "#",
+            "number": "NUMBER",
+            "numbers": "NUMBERS",
+        }
+
+        return replacements.get(
+            value.lower(),
+            value,
+        )
 
     def _find_source_string(
         self,
@@ -185,22 +194,26 @@ class ParameterExtractor:
                 if string_index < len(strings):
                     result[name] = strings[string_index]
                     string_index += 1
+                elif name == "name":
+                    match = re.search(
+                        r"^\s*greet\s+(.+?)\s*$",
+                        user_prompt,
+                        re.IGNORECASE,
+                    )
+
+                    if match:
+                        result[name] = match.group(1).strip()
 
             elif parameter.type == "boolean":
-                if re.search(
+                match = re.search(
                     rf"\b{name}\b\s+(true|false)\b",
                     user_prompt,
                     re.IGNORECASE,
-                ):
+                )
+
+                if match:
                     result[name] = (
-                        re.search(
-                            rf"\b{name}\b\s+(true|false)\b",
-                            user_prompt,
-                            re.IGNORECASE,
-                        )
-                        .group(1)
-                        .lower()
-                        == "true"
+                        match.group(1).lower() == "true"
                     )
 
         return result

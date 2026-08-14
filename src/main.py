@@ -34,7 +34,12 @@ def main() -> None:
 
             input_ids = model.encode(prompt).tolist()[0]
 
-            decoded = decoder.decode(input_ids, functions)
+            decoded = decoder.decode(
+                input_ids,
+                functions,
+                test.prompt,
+            )
+
             print(json.dumps(decoded, indent=4))
 
             results.append(
