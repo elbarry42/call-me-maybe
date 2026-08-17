@@ -38,10 +38,6 @@ class Decoder:
             for token_id in self.id_to_token
         }
 
-    # ---------------------------------------------------------
-    # Token utilities
-    # ---------------------------------------------------------
-
     def token_id(self, token: str) -> int:
         """Return the ID of a token."""
         return self.token_to_id[token]
