@@ -53,8 +53,9 @@ def main() -> None:
 
         except Exception as error:
             print(f"Error while processing test: {error}")
+            continue
 
-    try:
-        write_output(args.output, results)
-    except (OSError, TypeError, ValueError) as error:
-        print(f"Error while writing output file: {error}")
+        try:
+            write_output(args.output, results)
+        except (OSError, ValueError, TypeError) as error:
+            print(f"Error while writing output file: {error}")

@@ -156,27 +156,38 @@ class ParameterExtractor:
         user_prompt: str,
         name: str,
     ) -> str | None:
-        """Extract common named string parameters."""
+        """Extract a string parameter from the user request."""
         patterns = {
             "database": [
                 r"\bon\s+the\s+([A-Za-z0-9_.-]+)\s+database\b",
-                r"\bon\s+the\s+([A-Za-z0-9_.-]+)\b",
             ],
             "encoding": [
                 r"\bwith\s+([A-Za-z0-9_-]+)\s+encoding\b",
             ],
             "path": [
-                r"\bread\s+the\s+file\s+at\s+(.+?)"
-                r"\s+with\s+[A-Za-z0-9_-]+\s+encoding\b",
-                r"\bread\s+(.+?)"
-                r"\s+with\s+[A-Za-z0-9_-]+\s+encoding\b",
+                r"\bat\s+(.+?)\s+with\s+[A-Za-z0-9_-]+\s+encoding\b",
             ],
             "template": [
-                r"\bformat\s+template:\s*(.+)$",
+                r"\btemplate:\s*(.+)$",
             ],
         }
 
         for pattern in patterns.get(name, []):
+            match = re.search(
+                pattern,
+                user_prompt,
+                re.IGNORECASE,
+            )
+
+            if match is not None:
+                return match.group(1).strip()
+
+        generic_patterns = [
+            rf"\b{name}\s*(?:is|=|:)\s*['\"]([^'\"]+)['\"]",
+            rf"\b{name}\s+(?:is|to|as)\s+([^\s,]+)",
+        ]
+
+        for pattern in generic_patterns:
             match = re.search(
                 pattern,
                 user_prompt,
@@ -280,11 +291,7 @@ class ParameterExtractor:
             if name in parameters:
                 continue
 
-            value = self._fallback_value(
-                user_prompt,
-                name,
-                parameter.type,
-            )
+            value = self._fallback_value(parameter.type)
 
             parameters[name] = value
 
@@ -292,8 +299,6 @@ class ParameterExtractor:
 
     def _fallback_value(
         self,
-        user_prompt: str,
-        name: str,
         parameter_type: str,
     ) -> object:
         """Return a safe fallback for a missing parameter."""

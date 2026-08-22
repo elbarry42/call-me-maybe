@@ -11,19 +11,19 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--functions_definition",
+        "-functions_definition",
         default="data/input/functions_definition.json",
         help="Path to the function definitions JSON file.",
     )
 
     parser.add_argument(
-        "--input",
+        "-input",
         default="data/input/function_calling_tests.json",
         help="Path to the input tests JSON file.",
     )
 
     parser.add_argument(
-        "--output",
+        "-output",
         default="data/output/function_calling_results.json",
         help="Path to the output JSON file.",
     )
